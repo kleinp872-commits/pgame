@@ -227,6 +227,7 @@
     stainCtx.setTransform(DPR,0,0,DPR,0,0);
     gctx.setTransform(DPR,0,0,DPR,0,0);
     makePaper();
+    makeFog();
     drawBackground();
   }
   window.addEventListener('resize', resize);
@@ -344,6 +345,72 @@
     }
   }
 
+  // ---------- lightning ----------
+  let flashWhite=0, bolts=[];
+  function boltPath(x0,y0,x1,y1,depth){
+    let pts=[{x:x0,y:y0},{x:x1,y:y1}];
+    for(let d=0; d<depth; d++){
+      const next=[pts[0]];
+      for(let i=1;i<pts.length;i++){
+        const a=pts[i-1], b=pts[i];
+        next.push({x:(a.x+b.x)/2 + (Math.random()-0.5)*(b.y-a.y)*0.5,
+                   y:(a.y+b.y)/2 + (Math.random()-0.5)*10}, b);
+      }
+      pts=next;
+    }
+    return pts;
+  }
+  function spawnLightning(){
+    flashWhite = 120;
+    const x = W*0.3+Math.random()*W*0.4;
+    const main = boltPath(x,-10, x+(Math.random()-0.5)*80, baseY(), 5);
+    bolts.push({pts:main, life:250, maxLife:250, w:3});
+    for(let i=0;i<3;i++){
+      const p = main[2+Math.floor(Math.random()*(main.length-4))];
+      bolts.push({pts:boltPath(p.x,p.y, p.x+(Math.random()-0.5)*160, p.y+80+Math.random()*120, 3),
+                  life:200, maxLife:200, w:1.5});
+    }
+  }
+
+  // ---------- fog (offscreen, drifting) ----------
+  let fogCanvas=null, fogs=[];
+  function makeFog(){
+    fogCanvas=document.createElement('canvas');
+    fogCanvas.width=420; fogCanvas.height=120;
+    const f=fogCanvas.getContext('2d');
+    for(let i=0;i<7;i++){
+      const x=40+Math.random()*340, y=30+Math.random()*60, r=40+Math.random()*50;
+      const g=f.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,'rgba(233,228,214,0.16)'); g.addColorStop(1,'rgba(233,228,214,0)');
+      f.fillStyle=g; f.beginPath(); f.arc(x,y,r,0,Math.PI*2); f.fill();
+    }
+    fogs=[{x:-100,y:H*0.30,v:0.006,s:1.4},{x:W*0.5,y:H*0.42,v:-0.004,s:1.9},{x:W*0.2,y:H*0.55,v:0.003,s:2.4}];
+  }
+
+  // ---------- level transition ink wave ----------
+  function drawInkWave(prog){
+    const bandW = W*0.7+220;
+    const total = W + bandW + 440;
+    const sweep = Math.min(1, prog/0.55);
+    const lead = -220 + sweep*total;
+    gctx.fillStyle='rgba(28,24,19,0.94)';
+    gctx.beginPath();
+    gctx.moveTo(lead + Math.sin(prog*14)*24, -20);
+    for(let y=0;y<=H;y+=20) gctx.lineTo(lead + Math.sin(y*0.045+prog*14)*24, y);
+    gctx.lineTo(lead + Math.sin(H*0.045+prog*14)*24, H+20);
+    gctx.lineTo(lead-bandW + Math.sin(H*0.03+prog*10)*30, H+20);
+    for(let y=H;y>=0;y-=20) gctx.lineTo(lead-bandW + Math.sin(y*0.03+prog*10)*30, y);
+    gctx.closePath(); gctx.fill();
+    if(prog>0.25 && prog<0.85){
+      const ta = Math.sin((prog-0.25)/0.6*Math.PI);
+      gctx.fillStyle='rgba(233,226,207,'+ta.toFixed(3)+')';
+      gctx.font='700 44px "Songti SC","STSong","Noto Serif SC",serif';
+      gctx.textAlign='center';
+      gctx.fillText('第 '+(level+1)+' 關', W/2, H*0.45);
+      gctx.textAlign='start';
+    }
+  }
+
   // ---------- juice: shake / hit-stop / vibrate ----------
   let shakeT=0, shakePow=0, freezeT=0;
   const SHAKE_DUR=220;
@@ -359,6 +426,7 @@
   let score=0, lives=3, level=1, running=false, paused=false;
   let enemies=[], particles=[], strokePts=[], strokeTrail=[], inkBlooms=[];
   let lastStrokeAngle=0;
+  let thunderQueue=[], thunderT=0;
   let spawnTimer=0, spawnInterval=1400;
   let levelKills=0, levelGoal=12, levelTransition=0;
   let hp=100;
@@ -382,6 +450,7 @@
     score=0; lives=3; level=1; hp=100;
     enemies=[]; particles=[]; strokePts=[]; strokeTrail=[]; inkBlooms=[];
     shards=[]; clearStains();
+    thunderQueue=[]; thunderT=0; bolts=[]; flashWhite=0; freezeT=0; shakeT=0;
     levelKills=0; levelTransition=0;
     applyLevelConfig();
     spawnTimer=0;
@@ -757,7 +826,7 @@
     enemies.forEach(en=>{
       if(en.alive){ en.alive=false; inkBloom(en.x,en.y,'161,58,44'); }
     });
-    levelTransition = 1400;
+    levelTransition = 2200;
   }
 
   function startLevel(n){
@@ -809,7 +878,9 @@
     if(success){
       flash('Trace complete · Thunder!');
       sfx.thunder();
-      enemies.forEach(en=>{ if(en.alive) killEnemy(en, 6); });
+      spawnLightning(); shake(9); buzz(60);
+      thunderQueue = enemies.filter(e=>e.alive).sort((a,b)=>b.y-a.y);
+      thunderT = 0;
       inkBloom(W/2,H*0.4,'161,58,44');
     }
     castEvent = null;
@@ -838,6 +909,14 @@
     strokeTrail = strokeTrail.filter(p=>p.life>0);
     shards.forEach(s=>{ s.vy+=0.00035*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt; s.life-=dt; });
     shards = shards.filter(s=>s.life>0);
+    flashWhite = Math.max(0, flashWhite-dt);
+    bolts.forEach(b=>b.life-=dt);
+    bolts = bolts.filter(b=>b.life>0);
+    fogs.forEach(f=>{
+      f.x += f.v*dt;
+      if(f.v>0 && f.x>W+40) f.x = -420*f.s-40;
+      if(f.v<0 && f.x<-420*f.s-40) f.x = W+40;
+    });
     updateInkBlooms(dt);
   }
 
@@ -849,9 +928,20 @@
     stainFadeT += dt;
     if(stainFadeT>2000){ stainFadeT=0; fadeStains(); }
 
+    if(thunderQueue.length){
+      thunderT += dt;
+      while(thunderT>=60 && thunderQueue.length){
+        thunderT -= 60;
+        const ten = thunderQueue.shift();
+        if(ten.alive) killEnemy(ten, 6);
+      }
+    }
+
     if(levelTransition>0){
       levelTransition -= dt;
       if(levelTransition<=0) startLevel(level+1);
+      updateHUD();
+      return;
     } else {
       spawnTimer += dt;
       if(spawnTimer>spawnInterval){
@@ -902,6 +992,8 @@
       const k = (shakeT/SHAKE_DUR)*shakePow;
       gctx.translate((Math.random()-0.5)*k, (Math.random()-0.5)*k);
     } else { shakePow=0; }
+    // drifting fog (lowest layer)
+    if(fogCanvas) fogs.forEach(f=>gctx.drawImage(fogCanvas, f.x, f.y, 420*f.s, 120*f.s));
     // stroke trail (ink brush)
     if(strokeTrail.length>1){
       gctx.lineJoin='round'; gctx.lineCap='round';
@@ -952,7 +1044,34 @@
       gctx.beginPath(); gctx.arc(p.x,p.y,p.r,0,Math.PI*2); gctx.fill();
       gctx.globalAlpha = 1;
     });
+    // lightning bolts
+    bolts.forEach(b=>{
+      const a = b.life/b.maxLife;
+      gctx.lineCap='round'; gctx.lineJoin='round';
+      gctx.strokeStyle='rgba(161,58,44,'+(0.35*a).toFixed(3)+')';
+      gctx.lineWidth=b.w*3.5;
+      gctx.beginPath(); b.pts.forEach((p,i)=>{ i?gctx.lineTo(p.x,p.y):gctx.moveTo(p.x,p.y); }); gctx.stroke();
+      gctx.strokeStyle='rgba(255,252,240,'+(0.9*a).toFixed(3)+')';
+      gctx.lineWidth=b.w;
+      gctx.beginPath(); b.pts.forEach((p,i)=>{ i?gctx.lineTo(p.x,p.y):gctx.moveTo(p.x,p.y); }); gctx.stroke();
+    });
+    // level transition ink wave
+    if(levelTransition>0) drawInkWave(1 - levelTransition/2200);
     gctx.restore();
+    // danger vignette (screen-fixed)
+    if(running && hp<30){
+      const breathe = 0.5+0.5*Math.sin(performance.now()*0.004);
+      const va = (0.18 + 0.22*(1-hp/30)) * (0.6+0.4*breathe);
+      const vg = gctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.45, W/2,H/2,Math.max(W,H)*0.72);
+      vg.addColorStop(0,'rgba(161,58,44,0)');
+      vg.addColorStop(1,'rgba(161,58,44,'+va.toFixed(3)+')');
+      gctx.fillStyle=vg; gctx.fillRect(0,0,W,H);
+    }
+    // thunder white flash
+    if(flashWhite>0){
+      gctx.fillStyle='rgba(255,255,250,'+(flashWhite/120*0.75).toFixed(3)+')';
+      gctx.fillRect(0,0,W,H);
+    }
     // cursor crosshair for mouse (desktop feel), skip on pure touch idle
   }
 
