@@ -534,7 +534,7 @@
     levelKills=0; levelTransition=0;
     applyLevelConfig();
     spawnTimer=0;
-    castEvent=null; castCooldown=3000;
+    castEvent=null; castCooldown=4000;
     updateHUD();
   }
 
@@ -1007,7 +1007,7 @@
     castEvent = null;
     promptText.style.display='none';
     sealBox.classList.remove('armed');
-    castCooldown = 5000 + Math.random()*3000;
+    castCooldown = 7000 + Math.random()*3000;
   }
 
   // ---------- main loop ----------
