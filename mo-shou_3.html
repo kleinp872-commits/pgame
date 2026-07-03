@@ -576,12 +576,18 @@
   };
 
   // Each level defines which animals appear and how many strokes each needs.
+  // L4/L6/L8 are themed rhythm levels: tadpole flood / jellyfish wall / armored octopi.
   const LEVELS = [null,
-    { animals:[ {type:'tadpole',hits:1,weight:1} ], goal:12, spawnInterval:1300 },
-    { animals:[ {type:'tadpole',hits:1,weight:2}, {type:'octopus',hits:2,weight:1} ], goal:16, spawnInterval:1200 },
-    { animals:[ {type:'tadpole',hits:1,weight:2}, {type:'jellyfish',hits:2,weight:1}, {type:'octopus',hits:2,weight:1} ], goal:20, spawnInterval:1100 },
-    { animals:[ {type:'tadpole',hits:2,weight:2}, {type:'jellyfish',hits:2,weight:1}, {type:'octopus',hits:3,weight:1} ], goal:24, spawnInterval:1000 },
-    { animals:[ {type:'tadpole',hits:2,weight:1}, {type:'jellyfish',hits:3,weight:1}, {type:'octopus',hits:4,weight:1} ], goal:28, spawnInterval:900 }
+    { animals:[ {type:'tadpole',hits:1,weight:1} ], goal:25, spawnInterval:1300 },
+    { animals:[ {type:'tadpole',hits:1,weight:2}, {type:'octopus',hits:2,weight:1} ], goal:32, spawnInterval:1200 },
+    { animals:[ {type:'tadpole',hits:1,weight:2}, {type:'jellyfish',hits:2,weight:1}, {type:'octopus',hits:2,weight:1} ], goal:40, spawnInterval:1100 },
+    { animals:[ {type:'tadpole',hits:1,weight:4}, {type:'jellyfish',hits:2,weight:1} ], goal:50, spawnInterval:750 },
+    { animals:[ {type:'tadpole',hits:2,weight:2}, {type:'jellyfish',hits:2,weight:1}, {type:'octopus',hits:3,weight:1} ], goal:45, spawnInterval:1000 },
+    { animals:[ {type:'jellyfish',hits:2,weight:3}, {type:'tadpole',hits:2,weight:1} ], goal:48, spawnInterval:850 },
+    { animals:[ {type:'tadpole',hits:2,weight:2}, {type:'jellyfish',hits:3,weight:1}, {type:'octopus',hits:4,weight:1} ], goal:55, spawnInterval:900 },
+    { animals:[ {type:'octopus',hits:4,weight:3}, {type:'tadpole',hits:2,weight:1} ], goal:52, spawnInterval:950 },
+    { animals:[ {type:'tadpole',hits:2,weight:3}, {type:'jellyfish',hits:3,weight:2}, {type:'octopus',hits:3,weight:1} ], goal:65, spawnInterval:700 },
+    { animals:[ {type:'tadpole',hits:3,weight:2}, {type:'jellyfish',hits:4,weight:1}, {type:'octopus',hits:5,weight:1} ], goal:80, spawnInterval:650 }
   ];
   function getLevelConfig(lvl){
     if(lvl < LEVELS.length) return LEVELS[lvl];
@@ -589,7 +595,7 @@
     const extra = lvl - (LEVELS.length-1);
     return {
       animals: base.animals.map(a=>({...a, hits: a.hits + Math.floor(extra/2)})),
-      goal: base.goal + extra*4,
+      goal: base.goal + extra*6,
       spawnInterval: Math.max(480, base.spawnInterval - extra*35)
     };
   }
