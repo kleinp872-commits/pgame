@@ -116,6 +116,7 @@
   .overlay h1{font-size:34px; letter-spacing:10px; margin:0 0 6px;}
   .overlay p{font-size:13px; color:var(--ink-soft); letter-spacing:2px; margin:2px 0 22px;}
   .overlay .go-score{font-size:16px; letter-spacing:3px; margin-bottom:26px;}
+  .go-score .record{color:var(--seal); font-weight:700; letter-spacing:4px;}
   .startbtn{
     background:var(--seal); color:var(--paper); border:none; padding:12px 34px;
     font-size:14px; letter-spacing:6px; border-radius:2px; cursor:pointer; font-family:inherit;
@@ -247,6 +248,15 @@
     combo(n){ if(!this._ok())return; playTone('sine',600*Math.pow(1.059,Math.min(n,12)),0,0.09,0.18); }
   };
 
+  // ---------- persist: best score ----------
+  function loadBest(){
+    try{ return JSON.parse(localStorage.getItem('inkguard_best'))||{score:0,level:1}; }
+    catch(e){ return {score:0,level:1}; }
+  }
+  function saveBest(b){
+    try{ localStorage.setItem('inkguard_best', JSON.stringify(b)); }catch(e){}
+  }
+
   let W=0,H=0,DPR=1;
   function resize(){
     W = stage.clientWidth; H = stage.clientHeight;
@@ -357,8 +367,10 @@
     stainCtx.restore();
   }
 
-  // ---------- ink shards (death dissolve) ----------
-  let shards=[];
+  // ---------- ink shards (death dissolve, ring pool) ----------
+  const S_MAX=64; let sCur=0;
+  const shards=[];
+  for(let i=0;i<S_MAX;i++) shards.push({alive:false});
   function spawnShards(en, ang){
     const n = 4+Math.floor(Math.random()*3);
     for(let i=0;i<n;i++){
@@ -369,11 +381,12 @@
         poly.push({x:Math.cos(a)*rr*(0.6+Math.random()*0.7), y:Math.sin(a)*rr*(0.6+Math.random()*0.7)});
       }
       const a = ang + (Math.random()-0.5)*1.2;
-      shards.push({x:en.x,y:en.y,
-        vx:Math.cos(a)*(0.06+Math.random()*0.12),
-        vy:Math.sin(a)*(0.06+Math.random()*0.10)-0.05,
-        rot:Math.random()*Math.PI*2, vr:(Math.random()-0.5)*0.01,
-        poly, life:600, maxLife:600, grow:0.4+Math.random()*0.3});
+      const s = shards[sCur]; sCur=(sCur+1)%S_MAX;
+      s.alive=true; s.x=en.x; s.y=en.y;
+      s.vx=Math.cos(a)*(0.06+Math.random()*0.12);
+      s.vy=Math.sin(a)*(0.06+Math.random()*0.10)-0.05;
+      s.rot=Math.random()*Math.PI*2; s.vr=(Math.random()-0.5)*0.01;
+      s.poly=poly; s.life=600; s.maxLife=600; s.grow=0.4+Math.random()*0.3;
     }
   }
 
@@ -443,10 +456,13 @@
     }
   }
 
-  // ---------- score floaters ----------
-  let floaters=[];
+  // ---------- score floaters (ring pool) ----------
+  const F_MAX=32; let fCur=0;
+  const floaters=[];
+  for(let i=0;i<F_MAX;i++) floaters.push({alive:false});
   function spawnFloater(x,y,txt){
-    floaters.push({x,y,txt,life:700,maxLife:700});
+    const f = floaters[fCur]; fCur=(fCur+1)%F_MAX;
+    f.alive=true; f.x=x; f.y=y; f.txt=txt; f.life=700; f.maxLife=700;
   }
 
   // ---------- new enemy nameplate ----------
@@ -477,7 +493,7 @@
 
   // ---------- game state ----------
   let score=0, lives=3, level=1, running=false, paused=false;
-  let enemies=[], particles=[], strokePts=[], strokeTrail=[], inkBlooms=[];
+  let enemies=[], strokePts=[], strokeTrail=[], inkBlooms=[];
   let lastStrokeAngle=0;
   let thunderQueue=[], thunderT=0;
   let displayScore=0;
@@ -506,10 +522,13 @@
 
   function resetGame(){
     score=0; lives=3; level=1; hp=100;
-    enemies=[]; particles=[]; strokePts=[]; strokeTrail=[]; inkBlooms=[];
-    shards=[]; clearStains();
+    enemies=[]; strokePts=[]; strokeTrail=[]; inkBlooms=[];
+    particles.forEach(p=>p.alive=false);
+    shards.forEach(s=>s.alive=false);
+    floaters.forEach(f=>f.alive=false);
+    clearStains();
     thunderQueue=[]; thunderT=0; bolts=[]; flashWhite=0; freezeT=0; shakeT=0;
-    floaters=[]; displayScore=0; combo=0; comboT=0;
+    displayScore=0; combo=0; comboT=0;
     comboTxt.classList.remove('pop');
     seenTypes=new Set(); namePlate.classList.remove('show');
     levelKills=0; levelTransition=0;
@@ -699,15 +718,20 @@
     }
   }
 
-  // ---------- particles ----------
-  function spawnParticle(x,y,vx,vy,life,r){
-    particles.push({x,y,vx,vy,life,maxLife:life,r:r||2,color:'rgba(44,38,32,0.7)'});
+  // ---------- particles (ring pool) ----------
+  const P_MAX=256; let pCur=0;
+  const particles=[];
+  for(let i=0;i<P_MAX;i++) particles.push({alive:false});
+  function spawnParticle(x,y,vx,vy,life,r,color){
+    const p = particles[pCur]; pCur=(pCur+1)%P_MAX;
+    p.alive=true; p.x=x; p.y=y; p.vx=vx; p.vy=vy;
+    p.life=life; p.maxLife=life; p.r=r||2; p.color=color||'rgba(44,38,32,0.7)';
   }
   function burst(x,y,color){
     for(let i=0;i<8;i++){
       const a = Math.random()*Math.PI*2;
       const sp = 0.05+Math.random()*0.12;
-      particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:500,maxLife:500,r:2,color:color||'rgba(44,38,32,0.7)'});
+      spawnParticle(x,y,Math.cos(a)*sp,Math.sin(a)*sp,500,2,color);
     }
   }
   function splatter(x,y,ang){
@@ -975,14 +999,20 @@
   }
 
   function updateFx(dt){
-    particles.forEach(p=>{ p.vy += 0.0004*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; });
-    particles = particles.filter(p=>p.life>0);
+    for(let i=0;i<P_MAX;i++){ const p=particles[i]; if(!p.alive) continue;
+      p.vy += 0.0004*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt;
+      if(p.life<=0) p.alive=false;
+    }
     strokeTrail.forEach(p=>p.life-=dt);
     strokeTrail = strokeTrail.filter(p=>p.life>0);
-    shards.forEach(s=>{ s.vy+=0.00035*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt; s.life-=dt; });
-    shards = shards.filter(s=>s.life>0);
-    floaters.forEach(f=>{ f.y -= 0.03*dt; f.life -= dt; });
-    floaters = floaters.filter(f=>f.life>0);
+    for(let i=0;i<S_MAX;i++){ const s=shards[i]; if(!s.alive) continue;
+      s.vy+=0.00035*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt; s.life-=dt;
+      if(s.life<=0) s.alive=false;
+    }
+    for(let i=0;i<F_MAX;i++){ const f=floaters[i]; if(!f.alive) continue;
+      f.y -= 0.03*dt; f.life -= dt;
+      if(f.life<=0) f.alive=false;
+    }
     if(displayScore<score){
       displayScore = Math.min(score, displayScore + Math.max(0.05*dt, (score-displayScore)*0.012*dt));
       scoreNum.textContent = Math.floor(displayScore);
@@ -1110,6 +1140,7 @@
     }
     enemies.forEach(drawEnemy);
     shards.forEach(s=>{
+      if(!s.alive) return;
       const a = s.life/s.maxLife;
       const sc = 1 + (1-a)*s.grow;
       gctx.save();
@@ -1122,21 +1153,21 @@
     });
     drawInkBlooms();
     particles.forEach(p=>{
+      if(!p.alive) return;
       gctx.fillStyle = p.color;
       gctx.globalAlpha = Math.max(0,p.life/p.maxLife);
       gctx.beginPath(); gctx.arc(p.x,p.y,p.r,0,Math.PI*2); gctx.fill();
       gctx.globalAlpha = 1;
     });
     // score floaters
-    if(floaters.length){
-      gctx.font='600 13px "Songti SC","STSong","Noto Serif SC",serif';
-      gctx.textAlign='center';
-      floaters.forEach(f=>{
-        gctx.fillStyle='rgba(44,38,32,'+(0.85*f.life/f.maxLife).toFixed(3)+')';
-        gctx.fillText(f.txt, f.x, f.y);
-      });
-      gctx.textAlign='start';
-    }
+    gctx.font='600 13px "Songti SC","STSong","Noto Serif SC",serif';
+    gctx.textAlign='center';
+    floaters.forEach(f=>{
+      if(!f.alive) return;
+      gctx.fillStyle='rgba(44,38,32,'+(0.85*f.life/f.maxLife).toFixed(3)+')';
+      gctx.fillText(f.txt, f.x, f.y);
+    });
+    gctx.textAlign='start';
     // lightning bolts
     bolts.forEach(b=>{
       const a = b.life/b.maxLife;
@@ -1171,7 +1202,13 @@
   function gameOver(){
     sfx.chime();
     running=false;
-    finalScoreEl.textContent = 'SCORE '+score;
+    const best = loadBest();
+    if(score > best.score){
+      saveBest({score:score, level:level});
+      finalScoreEl.innerHTML = '<span class="record">新紀錄！</span>　SCORE '+score;
+    } else {
+      finalScoreEl.textContent = 'SCORE '+score+' · 最佳 '+best.score;
+    }
     endOverlay.classList.add('show');
   }
 
