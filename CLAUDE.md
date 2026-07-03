@@ -14,10 +14,25 @@ viewport — it's touch-first, `maximum-scale=1.0, user-scalable=no`).
 
 ## Architecture (all in the `<script>` IIFE, top-to-bottom)
 
-- **Two stacked canvases.** `#bg` is drawn once per `resize()` (static ink-wash
-  mountains + ripple lines + the dashed red defense line at `baseY()` = `H*0.82`).
-  `#game` is cleared and redrawn every frame. `DPR` is capped at 2; contexts are
-  pre-transformed by `setTransform(DPR,...)` so all game logic uses CSS pixels.
+- **Three stacked canvases.** `#bg` is drawn once per `resize()` (static ink-wash
+  mountains + ripple lines + procedural paper texture + the dashed red defense
+  line at `baseY()` = `H*0.82`). `#stain` holds persistent kill-stains, faded by
+  a throttled `destination-out` pass every 2s. `#game` is cleared and redrawn
+  every frame. `DPR` is capped at 2; contexts are pre-transformed by
+  `setTransform(DPR,...)` so all game logic uses CSS pixels.
+- **Module zones in the IIFE** (in order): `audio` (Web Audio synthesized `sfx.*`
+  + mute persisted to localStorage), `persist` (best score), paper/stain/shards/
+  lightning/fog/ink-wave fx, floaters + nameplate HUD helpers, `juice`
+  (`shake()`, `buzz()`, hit-stop via `freezeT`), then the original game core.
+- **Ring object pools.** `particles` (256) / `floaters` (32) / `shards` (64) are
+  fixed-size `const` arrays with `alive` flags and cursor-based spawn — never
+  reassign or `filter()` them; reset via `alive=false` sweep in `resetGame()`.
+- **Per-frame split:** `updateFx(dt)` runs always (even during hit-stop freeze
+  and level transition); game logic in `update(dt)` early-returns on `freezeT`
+  and during `levelTransition`.
+- **Cast patterns.** `CAST_PATTERNS` (W/V/Z/O) each own a `gen()` for the dashed
+  guide and a `match(strokeStats)` heuristic; `checkCastMatch` only tests the
+  active event's own pattern.
 - **Fixed game-state module-locals** (`score, lives, level, hp, enemies,
   particles, strokePts, strokeTrail, inkBlooms, castEvent, ...`). `resetGame()`
   reinitializes them; there is no other state container.
