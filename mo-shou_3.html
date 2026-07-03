@@ -211,9 +211,21 @@
   }
   function baseY(){ return H*0.82; }
 
+  // ---------- juice: shake / hit-stop / vibrate ----------
+  let shakeT=0, shakePow=0, freezeT=0;
+  const SHAKE_DUR=220;
+  function shake(p){
+    shakePow = Math.min(12, Math.max(shakePow, p));
+    shakeT = SHAKE_DUR;
+  }
+  function buzz(ms){
+    if(navigator.vibrate){ try{ navigator.vibrate(ms); }catch(e){} }
+  }
+
   // ---------- game state ----------
   let score=0, lives=3, level=1, running=false, paused=false;
   let enemies=[], particles=[], strokePts=[], strokeTrail=[], inkBlooms=[];
+  let lastStrokeAngle=0;
   let spawnTimer=0, spawnInterval=1400;
   let levelKills=0, levelGoal=12, levelTransition=0;
   let hp=100;
@@ -424,11 +436,21 @@
   }
 
   // ---------- particles ----------
+  function spawnParticle(x,y,vx,vy,life,r){
+    particles.push({x,y,vx,vy,life,maxLife:life,r:r||2,color:'rgba(44,38,32,0.7)'});
+  }
   function burst(x,y,color){
     for(let i=0;i<8;i++){
       const a = Math.random()*Math.PI*2;
       const sp = 0.05+Math.random()*0.12;
-      particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:500,maxLife:500,color:color||'rgba(44,38,32,0.7)'});
+      particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:500,maxLife:500,r:2,color:color||'rgba(44,38,32,0.7)'});
+    }
+  }
+  function splatter(x,y,ang){
+    for(let i=0;i<10;i++){
+      const a = ang + (Math.random()-0.5)*1.4;           // ±40°
+      const sp = 0.08+Math.random()*0.22;
+      spawnParticle(x,y, Math.cos(a)*sp, Math.sin(a)*sp, 320+Math.random()*280, 1+Math.random()*2.2);
     }
   }
 
@@ -511,6 +533,7 @@
     const p = toLocal(e);
     const prev = strokePts[strokePts.length-1];
     strokePts.push(p);
+    if(prev) lastStrokeAngle = Math.atan2(p.y-prev.y, p.x-prev.x);
     strokeTrail.push({x:p.x,y:p.y,life:260,maxLife:260});
     // check enemy collisions along segment
     if(prev){
@@ -562,6 +585,8 @@
     en.hits += 1;
     en.hitFlash = 140;
     en.hitCooldown = 220;
+    shake(3); buzz(10);
+    splatter(en.x, en.y, lastStrokeAngle);
     score += en.ptsPerHit;
     if(en.hits >= en.maxHits){
       killEnemy(en, 0);
@@ -574,6 +599,7 @@
   function killEnemy(en, bonusPts, countsForLevel){
     if(countsForLevel===undefined) countsForLevel = true;
     en.alive = false;
+    shake(6); buzz(25); freezeT = 50;
     inkBloom(en.x,en.y);
     score += (bonusPts||0);
     if(countsForLevel){
@@ -655,6 +681,7 @@
     if(!lastT) lastT=t;
     const dt = Math.min(50, t-lastT);
     lastT = t;
+    shakeT = Math.max(0, shakeT-dt);
     if(running && !paused){
       update(dt);
     }
@@ -662,7 +689,17 @@
     requestAnimationFrame(loop);
   }
 
+  function updateFx(dt){
+    particles.forEach(p=>{ p.vy += 0.0004*dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; });
+    particles = particles.filter(p=>p.life>0);
+    strokeTrail.forEach(p=>p.life-=dt);
+    strokeTrail = strokeTrail.filter(p=>p.life>0);
+    updateInkBlooms(dt);
+  }
+
   function update(dt){
+    updateFx(dt);
+    if(freezeT>0){ freezeT-=dt; return; }
     castCooldown -= dt;
 
     if(levelTransition>0){
@@ -699,6 +736,7 @@
         en.alive=false;
         lives = Math.max(0, lives-1);
         hp = Math.max(0, hp-14);
+        shake(10); buzz(80);
         inkBloom(en.x, baseY(), '161,58,44');
         updateHUD();
         if(lives<=0 || hp<=0) gameOver();
@@ -706,17 +744,16 @@
     });
     enemies = enemies.filter(e=>e.alive);
 
-    particles.forEach(p=>{ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; });
-    particles = particles.filter(p=>p.life>0);
-    strokeTrail.forEach(p=>p.life-=dt);
-    strokeTrail = strokeTrail.filter(p=>p.life>0);
-    updateInkBlooms(dt);
-
     updateHUD();
   }
 
   function render(){
     gctx.clearRect(0,0,W,H);
+    gctx.save();
+    if(shakeT>0){
+      const k = (shakeT/SHAKE_DUR)*shakePow;
+      gctx.translate((Math.random()-0.5)*k, (Math.random()-0.5)*k);
+    } else { shakePow=0; }
     // stroke trail (ink brush)
     if(strokeTrail.length>1){
       gctx.lineJoin='round'; gctx.lineCap='round';
@@ -750,9 +787,10 @@
     particles.forEach(p=>{
       gctx.fillStyle = p.color;
       gctx.globalAlpha = Math.max(0,p.life/p.maxLife);
-      gctx.beginPath(); gctx.arc(p.x,p.y,2,0,Math.PI*2); gctx.fill();
+      gctx.beginPath(); gctx.arc(p.x,p.y,p.r,0,Math.PI*2); gctx.fill();
       gctx.globalAlpha = 1;
     });
+    gctx.restore();
     // cursor crosshair for mouse (desktop feel), skip on pure touch idle
   }
 
