@@ -996,6 +996,112 @@ git add mo-shou_3.html && git commit -m "feat: best-score persistence + object p
 
 ---
 
+### Task 7: 施法图案池（W / V / Z / O）
+
+**Files:**
+- Modify: `mo-shou_3.html`
+
+**Interfaces:**
+- Produces: `CAST_PATTERNS`（`{ch, gen(cx,cy), match(stats)}` 数组）、`strokeStats(pts)`。
+- Consumes: 现有 `castEvent`/`triggerCastEvent`/`checkCastMatch`/`resolveCast`/`promptText`。独立于 Task 1–6，可在其后任意时点执行。
+
+- [ ] **Step 1: 图案定义 + strokeStats**
+
+`// ---------- cast event ----------` 区（`triggerCastEvent` 之前）加：
+
+```js
+  const CAST_PATTERNS=[
+    { ch:'W',
+      gen(cx,cy){ const p=[]; for(let i=0;i<=4;i++) p.push({x:cx+(i-2)*22, y:cy+(i%2===0?-18:18)}); return p; },
+      match(s){ return s.yrev>=2 && s.w>=60; } },
+    { ch:'V',
+      gen(cx,cy){ return [{x:cx-30,y:cy-20},{x:cx,y:cy+22},{x:cx+30,y:cy-20}]; },
+      match(s){ return s.yrev===1 && s.h>=30 && s.w>=25; } },
+    { ch:'Z',
+      gen(cx,cy){ return [{x:cx-30,y:cy-20},{x:cx+30,y:cy-20},{x:cx-30,y:cy+20},{x:cx+30,y:cy+20}]; },
+      match(s){ return s.xrev>=2 && s.yrev<=1 && s.w>=50; } },
+    { ch:'O',
+      gen(cx,cy){ const p=[]; for(let i=0;i<12;i++){ const a=i/12*Math.PI*2-Math.PI/2; p.push({x:cx+Math.cos(a)*34, y:cy+Math.sin(a)*34}); } return p; },
+      match(s){ return s.closed<45 && s.len>=140 && s.w>=45 && s.h>=45; } }
+  ];
+  function strokeStats(pts){
+    let len=0,xrev=0,yrev=0,ldx=0,ldy=0;
+    let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i];
+      minx=Math.min(minx,p.x); maxx=Math.max(maxx,p.x);
+      miny=Math.min(miny,p.y); maxy=Math.max(maxy,p.y);
+      if(i>0){
+        const dx=p.x-pts[i-1].x, dy=p.y-pts[i-1].y;
+        len+=Math.hypot(dx,dy);
+        if(Math.abs(dx)>2){ if(ldx!==0 && Math.sign(dx)!==Math.sign(ldx)) xrev++; ldx=dx; }
+        if(Math.abs(dy)>2){ if(ldy!==0 && Math.sign(dy)!==Math.sign(ldy)) yrev++; ldy=dy; }
+      }
+    }
+    return {len, w:maxx-minx, h:maxy-miny, xrev, yrev,
+            closed: Math.hypot(pts[0].x-pts[pts.length-1].x, pts[0].y-pts[pts.length-1].y)};
+  }
+```
+
+- [ ] **Step 2: triggerCastEvent 随机抽图案**
+
+`triggerCastEvent` 中生成 `pts` 的 for 循环及其上方 `const pts=[]; const n=4;` 替换为：
+
+```js
+    const pattern = CAST_PATTERNS[Math.floor(Math.random()*CAST_PATTERNS.length)];
+    const pts = pattern.gen(cx,cy);
+```
+
+`castEvent = {...}` 改为存图案与中心：
+
+```js
+    castEvent = {points:pts, pattern, cx, cy, life:5000, maxLife:5000, matched:false};
+```
+
+提示行 `promptText` 赋值处（HTML 中原静态文字不再准确）加：
+
+```js
+    promptText.textContent = '描 '+pattern.ch+' · Trace '+pattern.ch;
+```
+
+- [ ] **Step 3: checkCastMatch 换用图案判定器**
+
+`checkCastMatch` 函数体（`if(!castEvent||...)` 与 `if(strokePts.length<5) return;` 之后）整体替换为：
+
+```js
+    const s = strokeStats(strokePts);
+    const near = strokePts.some(p=>Math.hypot(p.x-castEvent.cx, p.y-castEvent.cy) < 120);
+    if(s.len>60 && near && castEvent.pattern.match(s)){
+      castEvent.matched = true;
+      resolveCast(true);
+    }
+```
+
+（原 reversals 内联统计代码删除。）
+
+- [ ] **Step 4: O 图案虚线闭合**
+
+`render` 中 cast 虚线绘制处，`gctx.stroke();` 之前加：
+
+```js
+      if(castEvent.pattern.ch==='O') gctx.closePath();
+```
+
+- [ ] **Step 5: 手动验证**
+
+- 多次触发施法事件，确认 W/V/Z/O 四种图案随机出现，提示文字随之变化（「描 V · Trace V」等）。
+- 逐一按图案描绘均能成功施雷：W 描之字、V 描对勾折、Z 描三笔折、O 画闭合圈。
+- 描错图案（如目标 O 时画横线）不触发；离图案太远描绘不触发。
+- O 的虚线引导显示为闭合圆。Console 无报错。
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add mo-shou_3.html && git commit -m "feat: cast pattern pool - W/V/Z/O trace shapes with per-shape matchers"
+```
+
+---
+
 ## 最终验收（对照 spec「测试方案」）
 
 - [ ] 桌面 Chrome + DevTools 移动模拟（触摸、DPR=2/3）双端冒烟通过
