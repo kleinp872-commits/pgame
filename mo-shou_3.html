@@ -26,24 +26,48 @@
 
   .hud{position:absolute; z-index:5; color:var(--ink); pointer-events:none;}
   .title{
-    top:18px; left:22px; font-size:22px; letter-spacing:6px; font-weight:700;
+    top:16px; left:16px; font-size:18px; letter-spacing:6px; font-weight:700;
   }
   .title small{display:block; font-size:9px; letter-spacing:3px; color:var(--ink-soft); font-weight:400; margin-top:2px;}
 
   .score{
-    top:14px; left:50%; transform:translateX(-50%); text-align:center;
+    top:12px; left:50%; transform:translateX(-50%); text-align:center;
   }
   .score .tide{font-size:10px; letter-spacing:5px; color:var(--ink-soft);}
   .score .num{font-size:26px; letter-spacing:3px; font-weight:600; margin-top:2px;}
 
-  .lives{top:20px; right:22px; display:flex; gap:6px;}
+  .lives{top:16px; right:16px; display:flex; gap:6px;}
   .lives .dot{
-    width:11px; height:11px; border-radius:50%;
-    background:var(--seal); box-shadow:0 0 0 1px rgba(0,0,0,0.15) inset;
+    width:13px; height:13px; border-radius:2px;
+    background:var(--seal); box-shadow:inset 0 0 0 1.5px rgba(233,226,207,.35);
   }
-  .lives .dot.lost{background:transparent; border:1.5px solid var(--ink-soft); opacity:.45;}
+  .lives .dot.lost{
+    background:transparent; border:1.5px solid var(--ink-soft); opacity:.4;
+    animation:sealBreak .5s ease-out;
+  }
+  @keyframes sealBreak{
+    0%{transform:scale(1) rotate(0); background:var(--seal); opacity:1;}
+    60%{transform:scale(1.35) rotate(14deg); opacity:.7;}
+    100%{transform:scale(1) rotate(0); opacity:.4;}
+  }
+  .score .num.bump{animation:bump .25s ease-out;}
+  @keyframes bump{0%{transform:scale(1);}40%{transform:scale(1.18);}100%{transform:scale(1);}}
+  .healthbar.hit{animation:hpHit .4s ease-out;}
+  .healthbar.hit .healthbar-fill{background:var(--seal);}
+  @keyframes hpHit{0%,50%{transform:translateX(-2px);}25%,75%{transform:translateX(2px);}100%{transform:none;}}
+  .comboTxt{
+    top:26%; left:0; right:0; text-align:center; font-size:24px; font-weight:700;
+    letter-spacing:4px; color:var(--seal-dark); opacity:0; transition:opacity .3s;
+  }
+  .comboTxt.pop{animation:comboPop .3s ease-out forwards;}
+  @keyframes comboPop{0%{opacity:0;transform:scale(.6);}60%{opacity:1;transform:scale(1.15);}100%{opacity:1;transform:scale(1);}}
+  .nameplate{
+    top:34%; left:0; right:0; text-align:center; font-size:20px; font-weight:700;
+    letter-spacing:6px; color:var(--ink); opacity:0; transition:opacity .4s;
+  }
+  .nameplate.show{opacity:1;}
 
-  .btns{top:46px; right:22px; display:flex; gap:8px; pointer-events:auto;}
+  .btns{top:44px; right:16px; display:flex; gap:8px; pointer-events:auto;}
   .rbtn{
     width:26px; height:26px; border-radius:50%; background:var(--seal);
     border:none; color:var(--paper); font-size:12px; display:flex; align-items:center; justify-content:center;
@@ -65,7 +89,12 @@
   @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.12);}}
 
   .wavebar{position:absolute; bottom:0; left:0; height:4px; width:100%; background:rgba(0,0,0,0.08); z-index:5;}
-  .wavebar-fill{height:100%; background:var(--seal); width:0%; transition:width .3s;}
+  .wavebar-fill{
+    height:100%; width:0%; transition:width .3s;
+    background:linear-gradient(90deg,var(--seal-dark),var(--seal),var(--seal-dark));
+    background-size:200% 100%; animation:inkflow 3s linear infinite;
+  }
+  @keyframes inkflow{from{background-position:0 0;}to{background-position:200% 0;}}
 
   .healthbar{position:absolute; left:10px; top:80px; bottom:80px; width:6px; background:rgba(0,0,0,0.08); border-radius:3px; z-index:5;}
   .healthbar-fill{position:absolute; bottom:0; left:0; width:100%; background:var(--ink-soft); border-radius:3px; transition:height .3s;}
@@ -126,6 +155,9 @@
   </div>
 
   <div class="wavebar"><div class="wavebar-fill" id="waveFill"></div></div>
+
+  <div class="hud comboTxt" id="comboTxt"></div>
+  <div class="hud nameplate" id="namePlate"></div>
 
   <div class="prompt" id="promptText" style="display:none;">Trace to cast · Thunder</div>
   <div class="flash" id="flashText"></div>
@@ -411,6 +443,27 @@
     }
   }
 
+  // ---------- score floaters ----------
+  let floaters=[];
+  function spawnFloater(x,y,txt){
+    floaters.push({x,y,txt,life:700,maxLife:700});
+  }
+
+  // ---------- new enemy nameplate ----------
+  const ANIMAL_NAMES={tadpole:'墨蝌',octopus:'墨蛸',jellyfish:'墨蜇'};
+  const CN_NUM=['零','一','二','三','四','五','六','七','八','九'];
+  let seenTypes=new Set(), nameTimer=null;
+  function announceNewEnemies(){
+    const cfg=getLevelConfig(level);
+    const news=cfg.animals.filter(a=>!seenTypes.has(a.type));
+    if(!news.length) return;
+    news.forEach(a=>seenTypes.add(a.type));
+    namePlate.textContent = news.map(a=>ANIMAL_NAMES[a.type]+' · '+(CN_NUM[a.hits]||a.hits)+'斬').join('　');
+    namePlate.classList.add('show');
+    clearTimeout(nameTimer);
+    nameTimer=setTimeout(()=>namePlate.classList.remove('show'), 1600);
+  }
+
   // ---------- juice: shake / hit-stop / vibrate ----------
   let shakeT=0, shakePow=0, freezeT=0;
   const SHAKE_DUR=220;
@@ -427,6 +480,8 @@
   let enemies=[], particles=[], strokePts=[], strokeTrail=[], inkBlooms=[];
   let lastStrokeAngle=0;
   let thunderQueue=[], thunderT=0;
+  let displayScore=0;
+  let combo=0, comboT=0;
   let spawnTimer=0, spawnInterval=1400;
   let levelKills=0, levelGoal=12, levelTransition=0;
   let hp=100;
@@ -445,12 +500,18 @@
   const startOverlay=document.getElementById('startOverlay');
   const endOverlay=document.getElementById('endOverlay');
   const finalScoreEl=document.getElementById('finalScore');
+  const comboTxt=document.getElementById('comboTxt');
+  const namePlate=document.getElementById('namePlate');
+  const healthBar=document.querySelector('.healthbar');
 
   function resetGame(){
     score=0; lives=3; level=1; hp=100;
     enemies=[]; particles=[]; strokePts=[]; strokeTrail=[]; inkBlooms=[];
     shards=[]; clearStains();
     thunderQueue=[]; thunderT=0; bolts=[]; flashWhite=0; freezeT=0; shakeT=0;
+    floaters=[]; displayScore=0; combo=0; comboT=0;
+    comboTxt.classList.remove('pop');
+    seenTypes=new Set(); namePlate.classList.remove('show');
     levelKills=0; levelTransition=0;
     applyLevelConfig();
     spawnTimer=0;
@@ -465,7 +526,7 @@
   }
 
   function updateHUD(){
-    scoreNum.textContent = score;
+    scoreNum.textContent = Math.floor(displayScore);
     tideLabel.textContent = 'LEVEL '+level+' · '+Math.min(levelKills,levelGoal)+'/'+levelGoal;
     hpFill.style.height = Math.max(0,hp)+'%';
     waveFill.style.width = Math.min(100,(levelKills/levelGoal)*100)+'%';
@@ -794,6 +855,7 @@
     splatter(en.x, en.y, lastStrokeAngle);
     sfx.slash();
     score += en.ptsPerHit;
+    spawnFloater(en.x, en.y-en.r-14, '+'+en.ptsPerHit);
     if(en.hits >= en.maxHits){
       killEnemy(en, 0);
     } else {
@@ -811,6 +873,15 @@
     addStain(en.x,en.y);
     spawnShards(en, lastStrokeAngle);
     score += (bonusPts||0);
+    combo++; comboT=2000;
+    const comboBonus = Math.min(20,(combo-1)*2);
+    if(comboBonus>0){ score += comboBonus; spawnFloater(en.x, en.y-en.r-28, '連 +'+comboBonus); }
+    if(combo>=2){
+      comboTxt.textContent='連斬 ×'+combo;
+      comboTxt.classList.remove('pop'); void comboTxt.offsetWidth; comboTxt.classList.add('pop');
+    }
+    if(combo>=3) sfx.combo(combo);
+    scoreNum.classList.remove('bump'); void scoreNum.offsetWidth; scoreNum.classList.add('bump');
     if(countsForLevel){
       levelKills++;
       if(levelKills>=levelGoal && levelTransition<=0){
@@ -836,6 +907,7 @@
     spawnTimer = 0;
     updateHUD();
     flash('LEVEL '+level);
+    announceNewEnemies();
   }
 
   // ---------- cast event (trace to cast) ----------
@@ -909,6 +981,16 @@
     strokeTrail = strokeTrail.filter(p=>p.life>0);
     shards.forEach(s=>{ s.vy+=0.00035*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt; s.life-=dt; });
     shards = shards.filter(s=>s.life>0);
+    floaters.forEach(f=>{ f.y -= 0.03*dt; f.life -= dt; });
+    floaters = floaters.filter(f=>f.life>0);
+    if(displayScore<score){
+      displayScore = Math.min(score, displayScore + Math.max(0.05*dt, (score-displayScore)*0.012*dt));
+      scoreNum.textContent = Math.floor(displayScore);
+    }
+    if(comboT>0){
+      comboT -= dt;
+      if(comboT<=0){ combo=0; comboTxt.classList.remove('pop'); }
+    }
     flashWhite = Math.max(0, flashWhite-dt);
     bolts.forEach(b=>b.life-=dt);
     bolts = bolts.filter(b=>b.life>0);
@@ -975,6 +1057,7 @@
         hp = Math.max(0, hp-14);
         shake(10); buzz(80);
         sfx.hurt();
+        healthBar.classList.remove('hit'); void healthBar.offsetWidth; healthBar.classList.add('hit');
         inkBloom(en.x, baseY(), '161,58,44');
         updateHUD();
         if(lives<=0 || hp<=0) gameOver();
@@ -1044,6 +1127,16 @@
       gctx.beginPath(); gctx.arc(p.x,p.y,p.r,0,Math.PI*2); gctx.fill();
       gctx.globalAlpha = 1;
     });
+    // score floaters
+    if(floaters.length){
+      gctx.font='600 13px "Songti SC","STSong","Noto Serif SC",serif';
+      gctx.textAlign='center';
+      floaters.forEach(f=>{
+        gctx.fillStyle='rgba(44,38,32,'+(0.85*f.life/f.maxLife).toFixed(3)+')';
+        gctx.fillText(f.txt, f.x, f.y);
+      });
+      gctx.textAlign='start';
+    }
     // lightning bolts
     bolts.forEach(b=>{
       const a = b.life/b.maxLife;
@@ -1088,12 +1181,14 @@
     sfx.chime();
     startOverlay.classList.remove('show');
     resetGame();
+    announceNewEnemies();
     running=true; paused=false;
   });
   document.getElementById('retryBtn').addEventListener('click', ()=>{
     ensureAudio();
     endOverlay.classList.remove('show');
     resetGame();
+    announceNewEnemies();
     running=true; paused=false;
   });
   document.getElementById('restartBtn').addEventListener('click', ()=>{
