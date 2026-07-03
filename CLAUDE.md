@@ -1,0 +1,60 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`mo-shou_3.html` — 墨守 · **Ink Guard**, a single-file HTML5 canvas game. Chinese
+ink-wash (水墨) themed tower-defense/slasher: ink spirits (墨靈) drift down the
+screen and the player swipes/traces to slay them before they cross the red seal
+line. Entirely self-contained: markup, CSS `:root` theme tokens, and the game
+engine (one IIFE `<script>`) all live in that one file. No build, no dependencies,
+no tests, no package manager. To run/dev, open the file in a browser (mobile
+viewport — it's touch-first, `maximum-scale=1.0, user-scalable=no`).
+
+## Architecture (all in the `<script>` IIFE, top-to-bottom)
+
+- **Two stacked canvases.** `#bg` is drawn once per `resize()` (static ink-wash
+  mountains + ripple lines + the dashed red defense line at `baseY()` = `H*0.82`).
+  `#game` is cleared and redrawn every frame. `DPR` is capped at 2; contexts are
+  pre-transformed by `setTransform(DPR,...)` so all game logic uses CSS pixels.
+- **Fixed game-state module-locals** (`score, lives, level, hp, enemies,
+  particles, strokePts, strokeTrail, inkBlooms, castEvent, ...`). `resetGame()`
+  reinitializes them; there is no other state container.
+- **Main loop** `loop(t)` → `update(dt)` + `render()`, driven by
+  `requestAnimationFrame`. `dt` is clamped to 50 ms. `update` only runs when
+  `running && !paused`; `render` always runs.
+- **Data-driven levels.** `LEVELS[]` (1-indexed; index 0 is `null`) declares which
+  animals spawn, their per-type stroke `hits`, spawn `weight`, level `goal`, and
+  `spawnInterval`. `getLevelConfig(lvl)` extrapolates past the last defined level
+  (adds hits/goal, shrinks interval). `ANIMAL_DEFS` holds per-type visual/motion
+  constants (`amp`, radius range, `speedMult`). To add an enemy: add an
+  `ANIMAL_DEFS` entry + a `drawEnemy` branch + reference it in `LEVELS`.
+- **Enemies** are plain objects pushed by `spawnEnemy()`. Motion = downward
+  `speed` (px/ms) plus horizontal sine-swim around `baseX`. `drawEnemy` switches on
+  `e.type` (`tadpole`/`octopus`/`jellyfish`), all hand-drawn with canvas paths.
+  Multi-hit enemies show remaining-hit dots above them.
+- **Input → combat.** Pointer/touch handlers build `strokePts` (with timestamps).
+  On `pointermove`, each new segment is collision-tested against every enemy via
+  `distToSeg`; a hit calls `hitEnemy` (respects `hitCooldown`, increments `hits`,
+  kills at `maxHits`). `strokeTrail` is the fading brush-ink visual.
+- **"Trace to cast" special.** `triggerCastEvent()` shows a dashed zig-zag path;
+  `checkCastMatch()` is a heuristic (counts x-direction reversals + proximity +
+  path length) — matching it fires `resolveCast(true)`, a screen-clear "thunder".
+  Governed by `castCooldown`.
+- **Effects.** `inkBloom()` (radial-gradient ink splashes with animated tendrils —
+  the signature visual) and `burst()`/`particles` are purely cosmetic.
+- **HUD** is DOM, not canvas: `updateHUD()` writes score/level/hp/lives/wave-bar.
+  Overlays (`#startOverlay`, `#endOverlay`) toggle the `.show` class.
+
+## Conventions specific to this file
+
+- **Units:** all gameplay math is in CSS pixels; speeds are **px per millisecond**
+  and scaled by `dt`. Don't reintroduce per-frame (frame-rate-dependent) movement.
+- **Losing:** an enemy crossing `baseY()` costs a life *and* 14 HP; `gameOver()`
+  fires when either hits 0.
+- **Colors** come from the CSS `:root` palette (paper/ink/seal). Canvas code uses
+  matching literal `rgba()` strings — the seal-red `161,58,44` recurs for "danger"
+  blooms (enemy breach, level-clear, thunder).
+- Language mix is intentional: Traditional/Simplified Chinese in UI copy, English
+  in the flash/prompt strings.
