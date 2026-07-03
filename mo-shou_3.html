@@ -935,16 +935,45 @@
   }
 
   // ---------- cast event (trace to cast) ----------
+  const CAST_PATTERNS=[
+    { ch:'W',
+      gen(cx,cy){ const p=[]; for(let i=0;i<=4;i++) p.push({x:cx+(i-2)*22, y:cy+(i%2===0?-18:18)}); return p; },
+      match(s){ return s.yrev>=2 && s.w>=60; } },
+    { ch:'V',
+      gen(cx,cy){ return [{x:cx-30,y:cy-20},{x:cx,y:cy+22},{x:cx+30,y:cy-20}]; },
+      match(s){ return s.yrev===1 && s.h>=30 && s.w>=25; } },
+    { ch:'Z',
+      gen(cx,cy){ return [{x:cx-30,y:cy-20},{x:cx+30,y:cy-20},{x:cx-30,y:cy+20},{x:cx+30,y:cy+20}]; },
+      match(s){ return s.xrev>=2 && s.yrev<=1 && s.w>=50; } },
+    { ch:'O',
+      gen(cx,cy){ const p=[]; for(let i=0;i<12;i++){ const a=i/12*Math.PI*2-Math.PI/2; p.push({x:cx+Math.cos(a)*34, y:cy+Math.sin(a)*34}); } return p; },
+      match(s){ return s.closed<45 && s.len>=140 && s.w>=45 && s.h>=45; } }
+  ];
+  function strokeStats(pts){
+    let len=0,xrev=0,yrev=0,ldx=0,ldy=0;
+    let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i];
+      minx=Math.min(minx,p.x); maxx=Math.max(maxx,p.x);
+      miny=Math.min(miny,p.y); maxy=Math.max(maxy,p.y);
+      if(i>0){
+        const dx=p.x-pts[i-1].x, dy=p.y-pts[i-1].y;
+        len+=Math.hypot(dx,dy);
+        if(Math.abs(dx)>2){ if(ldx!==0 && Math.sign(dx)!==Math.sign(ldx)) xrev++; ldx=dx; }
+        if(Math.abs(dy)>2){ if(ldy!==0 && Math.sign(dy)!==Math.sign(ldy)) yrev++; ldy=dy; }
+      }
+    }
+    return {len, w:maxx-minx, h:maxy-miny, xrev, yrev,
+            closed: Math.hypot(pts[0].x-pts[pts.length-1].x, pts[0].y-pts[pts.length-1].y)};
+  }
   function triggerCastEvent(){
     if(castEvent) return;
     const cx = W*0.5 + (Math.random()-0.5)*W*0.3;
     const cy = H*0.35;
-    const pts = [];
-    const n = 4;
-    for(let i=0;i<=n;i++){
-      pts.push({x: cx + (i-n/2)*22, y: cy + (i%2===0? -18: 18)});
-    }
-    castEvent = {points:pts, life:5000, maxLife:5000, matched:false};
+    const pattern = CAST_PATTERNS[Math.floor(Math.random()*CAST_PATTERNS.length)];
+    const pts = pattern.gen(cx,cy);
+    castEvent = {points:pts, pattern, cx, cy, life:5000, maxLife:5000, matched:false};
+    promptText.textContent = '描 '+pattern.ch+' · Trace '+pattern.ch;
     promptText.style.display='block';
     promptText.style.left = (cx-90)+'px';
     promptText.style.top = (cy-40)+'px';
@@ -953,19 +982,9 @@
   function checkCastMatch(){
     if(!castEvent || castEvent.matched) return;
     if(strokePts.length<5) return;
-    // heuristic: count direction reversals in x, and check bbox roughly matches
-    let reversals=0, lastDx=0;
-    for(let i=1;i<strokePts.length;i++){
-      const dx = strokePts[i].x - strokePts[i-1].x;
-      if(Math.abs(dx)>2){
-        if(lastDx!==0 && Math.sign(dx)!==Math.sign(lastDx)) reversals++;
-        lastDx = dx;
-      }
-    }
-    const len = pathLength(strokePts);
-    // near the prompt region?
-    const near = strokePts.some(p=>Math.hypot(p.x-castEvent.points[2].x, p.y-castEvent.points[2].y) < 120);
-    if(reversals>=2 && len>70 && near){
+    const s = strokeStats(strokePts);
+    const near = strokePts.some(p=>Math.hypot(p.x-castEvent.cx, p.y-castEvent.cy) < 120);
+    if(s.len>60 && near && castEvent.pattern.match(s)){
       castEvent.matched = true;
       resolveCast(true);
     }
@@ -1131,6 +1150,7 @@
       gctx.setLineDash([4,5]);
       gctx.beginPath();
       castEvent.points.forEach((p,i)=>{ if(i===0) gctx.moveTo(p.x,p.y); else gctx.lineTo(p.x,p.y); });
+      if(castEvent.pattern.ch==='O') gctx.closePath();
       gctx.stroke();
       gctx.setLineDash([]);
       castEvent.points.forEach(p=>{
