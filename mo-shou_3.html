@@ -99,6 +99,7 @@
 <body>
 <div id="stage">
   <canvas id="bg"></canvas>
+  <canvas id="stain"></canvas>
   <canvas id="game"></canvas>
 
   <div class="hud title">墨守<small>INK GUARD</small></div>
@@ -148,8 +149,10 @@
 (function(){
   const stage = document.getElementById('stage');
   const bgCanvas = document.getElementById('bg');
+  const stainCanvas = document.getElementById('stain');
   const gCanvas = document.getElementById('game');
   const bgCtx = bgCanvas.getContext('2d');
+  const stainCtx = stainCanvas.getContext('2d');
   const gctx = gCanvas.getContext('2d');
 
   // ---------- audio: synthesized sfx ----------
@@ -216,12 +219,14 @@
   function resize(){
     W = stage.clientWidth; H = stage.clientHeight;
     DPR = Math.min(window.devicePixelRatio||1, 2);
-    [bgCanvas,gCanvas].forEach(c=>{
+    [bgCanvas,stainCanvas,gCanvas].forEach(c=>{
       c.width = W*DPR; c.height = H*DPR;
       c.style.width=W+'px'; c.style.height=H+'px';
     });
     bgCtx.setTransform(DPR,0,0,DPR,0,0);
+    stainCtx.setTransform(DPR,0,0,DPR,0,0);
     gctx.setTransform(DPR,0,0,DPR,0,0);
+    makePaper();
     drawBackground();
   }
   window.addEventListener('resize', resize);
@@ -270,8 +275,74 @@
     bgCtx.lineTo(W, baseY());
     bgCtx.stroke();
     bgCtx.setLineDash([]);
+    if(paperCanvas) bgCtx.drawImage(paperCanvas,0,0,W,H);
   }
   function baseY(){ return H*0.82; }
+
+  // ---------- paper texture (offscreen) ----------
+  let paperCanvas=null;
+  function makePaper(){
+    paperCanvas=document.createElement('canvas');
+    paperCanvas.width=W; paperCanvas.height=H;
+    const p=paperCanvas.getContext('2d');
+    const fibers=Math.floor(W*H/900);
+    for(let i=0;i<fibers;i++){
+      const x=Math.random()*W, y=Math.random()*H, a=Math.random()*Math.PI, l=3+Math.random()*8;
+      p.strokeStyle='rgba(120,105,80,'+(0.04+Math.random()*0.05).toFixed(3)+')';
+      p.beginPath(); p.moveTo(x,y); p.lineTo(x+Math.cos(a)*l, y+Math.sin(a)*l); p.stroke();
+    }
+    for(let i=0;i<40;i++){
+      const x=Math.random()*W,y=Math.random()*H,r=20+Math.random()*60;
+      const g=p.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,'rgba(160,145,115,0.05)'); g.addColorStop(1,'rgba(160,145,115,0)');
+      p.fillStyle=g; p.beginPath(); p.arc(x,y,r,0,Math.PI*2); p.fill();
+    }
+  }
+
+  // ---------- stain layer ----------
+  let stainFadeT=0;
+  function addStain(x,y){
+    const r = 14+Math.random()*10;
+    const g = stainCtx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,'rgba(60,52,40,0.10)');
+    g.addColorStop(0.7,'rgba(60,52,40,0.05)');
+    g.addColorStop(1,'rgba(60,52,40,0)');
+    stainCtx.fillStyle=g;
+    stainCtx.beginPath(); stainCtx.arc(x,y,r,0,Math.PI*2); stainCtx.fill();
+  }
+  function clearStains(){
+    stainCtx.save(); stainCtx.setTransform(1,0,0,1,0,0);
+    stainCtx.clearRect(0,0,stainCanvas.width,stainCanvas.height);
+    stainCtx.restore();
+  }
+  function fadeStains(){
+    stainCtx.save(); stainCtx.setTransform(1,0,0,1,0,0);
+    stainCtx.globalCompositeOperation='destination-out';
+    stainCtx.globalAlpha=0.12;
+    stainCtx.fillStyle='#000';
+    stainCtx.fillRect(0,0,stainCanvas.width,stainCanvas.height);
+    stainCtx.restore();
+  }
+
+  // ---------- ink shards (death dissolve) ----------
+  let shards=[];
+  function spawnShards(en, ang){
+    const n = 4+Math.floor(Math.random()*3);
+    for(let i=0;i<n;i++){
+      const poly=[]; const pn=5+Math.floor(Math.random()*3);
+      const rr = en.r*(0.35+Math.random()*0.4);
+      for(let k=0;k<pn;k++){
+        const a=(k/pn)*Math.PI*2;
+        poly.push({x:Math.cos(a)*rr*(0.6+Math.random()*0.7), y:Math.sin(a)*rr*(0.6+Math.random()*0.7)});
+      }
+      const a = ang + (Math.random()-0.5)*1.2;
+      shards.push({x:en.x,y:en.y,
+        vx:Math.cos(a)*(0.06+Math.random()*0.12),
+        vy:Math.sin(a)*(0.06+Math.random()*0.10)-0.05,
+        rot:Math.random()*Math.PI*2, vr:(Math.random()-0.5)*0.01,
+        poly, life:600, maxLife:600, grow:0.4+Math.random()*0.3});
+    }
+  }
 
   // ---------- juice: shake / hit-stop / vibrate ----------
   let shakeT=0, shakePow=0, freezeT=0;
@@ -310,6 +381,7 @@
   function resetGame(){
     score=0; lives=3; level=1; hp=100;
     enemies=[]; particles=[]; strokePts=[]; strokeTrail=[]; inkBlooms=[];
+    shards=[]; clearStains();
     levelKills=0; levelTransition=0;
     applyLevelConfig();
     spawnTimer=0;
@@ -597,7 +669,8 @@
     const prev = strokePts[strokePts.length-1];
     strokePts.push(p);
     if(prev) lastStrokeAngle = Math.atan2(p.y-prev.y, p.x-prev.x);
-    strokeTrail.push({x:p.x,y:p.y,life:260,maxLife:260});
+    const d = prev? Math.hypot(p.x-prev.x,p.y-prev.y) : 0;
+    strokeTrail.push({x:p.x,y:p.y,life:400,maxLife:400,w:Math.max(2, 13-d*0.3)});
     // check enemy collisions along segment
     if(prev){
       enemies.forEach(en=>{
@@ -666,6 +739,8 @@
     shake(6); buzz(25); freezeT = 50;
     sfx.kill();
     inkBloom(en.x,en.y);
+    addStain(en.x,en.y);
+    spawnShards(en, lastStrokeAngle);
     score += (bonusPts||0);
     if(countsForLevel){
       levelKills++;
@@ -761,6 +836,8 @@
     particles = particles.filter(p=>p.life>0);
     strokeTrail.forEach(p=>p.life-=dt);
     strokeTrail = strokeTrail.filter(p=>p.life>0);
+    shards.forEach(s=>{ s.vy+=0.00035*dt; s.x+=s.vx*dt; s.y+=s.vy*dt; s.rot+=s.vr*dt; s.life-=dt; });
+    shards = shards.filter(s=>s.life>0);
     updateInkBlooms(dt);
   }
 
@@ -768,6 +845,9 @@
     updateFx(dt);
     if(freezeT>0){ freezeT-=dt; return; }
     castCooldown -= dt;
+
+    stainFadeT += dt;
+    if(stainFadeT>2000){ stainFadeT=0; fadeStains(); }
 
     if(levelTransition>0){
       levelTransition -= dt;
@@ -828,12 +908,15 @@
       for(let i=1;i<strokeTrail.length;i++){
         const p0=strokeTrail[i-1], p1=strokeTrail[i];
         const alpha = Math.max(0,p1.life/p1.maxLife);
-        gctx.strokeStyle = `rgba(44,38,32,${0.55*alpha})`;
-        gctx.lineWidth = 2 + 4*alpha;
-        gctx.beginPath();
-        gctx.moveTo(p0.x,p0.y);
-        gctx.lineTo(p1.x,p1.y);
-        gctx.stroke();
+        const w = ((p0.w||3)+(p1.w||3))/2*alpha + 0.5;
+        gctx.strokeStyle = 'rgba(44,38,32,'+(0.16*alpha).toFixed(3)+')';
+        gctx.lineWidth = w*2.1;
+        gctx.beginPath(); gctx.moveTo(p0.x,p0.y); gctx.lineTo(p1.x,p1.y); gctx.stroke();
+        if((i*7)%10 < 8){
+          gctx.strokeStyle = 'rgba(30,26,20,'+(0.6*alpha).toFixed(3)+')';
+          gctx.lineWidth = w;
+          gctx.beginPath(); gctx.moveTo(p0.x,p0.y); gctx.lineTo(p1.x,p1.y); gctx.stroke();
+        }
       }
     }
     // cast event dotted path
@@ -851,6 +934,17 @@
       });
     }
     enemies.forEach(drawEnemy);
+    shards.forEach(s=>{
+      const a = s.life/s.maxLife;
+      const sc = 1 + (1-a)*s.grow;
+      gctx.save();
+      gctx.translate(s.x,s.y); gctx.rotate(s.rot); gctx.scale(sc,sc);
+      gctx.fillStyle = 'rgba(24,21,17,'+(0.8*a).toFixed(3)+')';
+      gctx.beginPath();
+      s.poly.forEach((p,i)=>{ if(i===0) gctx.moveTo(p.x,p.y); else gctx.lineTo(p.x,p.y); });
+      gctx.closePath(); gctx.fill();
+      gctx.restore();
+    });
     drawInkBlooms();
     particles.forEach(p=>{
       gctx.fillStyle = p.color;
