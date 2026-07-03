@@ -50,6 +50,7 @@
     cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,.25);
   }
   .rbtn:active{filter:brightness(0.9);}
+  .rbtn.muted{opacity:.4; text-decoration:line-through;}
 
   .seal-btn{
     bottom:16px; left:50%; transform:translateX(-50%); text-align:center; pointer-events:none;
@@ -114,6 +115,7 @@
   <div class="btns">
     <button class="rbtn" id="pauseBtn">❚❚</button>
     <button class="rbtn" id="restartBtn">↺</button>
+    <button class="rbtn" id="muteBtn">音</button>
   </div>
 
   <div class="healthbar"><div class="healthbar-fill" id="hpFill" style="height:100%"></div></div>
@@ -149,6 +151,66 @@
   const gCanvas = document.getElementById('game');
   const bgCtx = bgCanvas.getContext('2d');
   const gctx = gCanvas.getContext('2d');
+
+  // ---------- audio: synthesized sfx ----------
+  let audioCtx=null, masterGain=null, muted=false;
+  try{ muted = localStorage.getItem('inkguard_muted')==='1'; }catch(e){}
+  function ensureAudio(){
+    if(audioCtx){ if(audioCtx.state==='suspended') audioCtx.resume(); return; }
+    try{
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = muted?0:0.9;
+      masterGain.connect(audioCtx.destination);
+    }catch(e){ audioCtx=null; }
+  }
+  function noiseBuf(dur){
+    const n = Math.floor(audioCtx.sampleRate*dur);
+    const buf = audioCtx.createBuffer(1,n,audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+    return buf;
+  }
+  function env(gainNode,t0,peak,dur){
+    gainNode.gain.setValueAtTime(0.0001,t0);
+    gainNode.gain.linearRampToValueAtTime(peak,t0+0.008);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+  }
+  function playNoise(dur,filterType,f0,f1,peak){
+    const t0=audioCtx.currentTime;
+    const src=audioCtx.createBufferSource(); src.buffer=noiseBuf(dur);
+    const flt=audioCtx.createBiquadFilter(); flt.type=filterType;
+    flt.frequency.setValueAtTime(f0,t0);
+    flt.frequency.exponentialRampToValueAtTime(Math.max(40,f1),t0+dur);
+    const g=audioCtx.createGain(); env(g,t0,peak,dur);
+    src.connect(flt).connect(g).connect(masterGain);
+    src.start(t0); src.stop(t0+dur+0.05);
+  }
+  function playTone(type,f0,f1,dur,peak,delay){
+    const t0=audioCtx.currentTime+(delay||0);
+    const o=audioCtx.createOscillator(); o.type=type;
+    o.frequency.setValueAtTime(f0,t0);
+    if(f1) o.frequency.exponentialRampToValueAtTime(f1,t0+dur);
+    const g=audioCtx.createGain(); env(g,t0,peak,dur);
+    o.connect(g).connect(masterGain);
+    o.start(t0); o.stop(t0+dur+0.05);
+  }
+  const sfx = {
+    _ok(){ return audioCtx && !muted; },
+    slash(){ if(!this._ok())return; playNoise(0.08,'bandpass',3400,1500,0.25); },
+    kill(){ if(!this._ok())return; playNoise(0.09,'bandpass',3000,1200,0.3); playTone('sine',130,70,0.12,0.5); },
+    thunder(){ if(!this._ok())return;
+      playNoise(0.03,'highpass',3000,3000,0.6);
+      playNoise(1.2,'lowpass',800,90,0.55);
+      playTone('sine',52,40,1.1,0.5);
+    },
+    hurt(){ if(!this._ok())return; playTone('triangle',220,110,0.3,0.4); },
+    clear(){ if(!this._ok())return;
+      [523,587,659,784,880].forEach((f,i)=>playTone('sine',f,0,0.5,0.22,i*0.09));
+    },
+    chime(){ if(!this._ok())return; playTone('sine',880,0,1.4,0.3); playTone('sine',1760,0,1.0,0.08); },
+    combo(n){ if(!this._ok())return; playTone('sine',600*Math.pow(1.059,Math.min(n,12)),0,0.09,0.18); }
+  };
 
   let W=0,H=0,DPR=1;
   function resize(){
@@ -524,6 +586,7 @@
     return {x:cx,y:cy,t:performance.now()};
   }
   function pointerDown(e){
+    ensureAudio();
     if(!running || paused) return;
     drawing = true;
     strokePts = [toLocal(e)];
@@ -587,6 +650,7 @@
     en.hitCooldown = 220;
     shake(3); buzz(10);
     splatter(en.x, en.y, lastStrokeAngle);
+    sfx.slash();
     score += en.ptsPerHit;
     if(en.hits >= en.maxHits){
       killEnemy(en, 0);
@@ -600,6 +664,7 @@
     if(countsForLevel===undefined) countsForLevel = true;
     en.alive = false;
     shake(6); buzz(25); freezeT = 50;
+    sfx.kill();
     inkBloom(en.x,en.y);
     score += (bonusPts||0);
     if(countsForLevel){
@@ -613,6 +678,7 @@
 
   function beginLevelClear(){
     flash('LEVEL '+level+' CLEAR!');
+    sfx.clear();
     enemies.forEach(en=>{
       if(en.alive){ en.alive=false; inkBloom(en.x,en.y,'161,58,44'); }
     });
@@ -667,6 +733,7 @@
   function resolveCast(success){
     if(success){
       flash('Trace complete · Thunder!');
+      sfx.thunder();
       enemies.forEach(en=>{ if(en.alive) killEnemy(en, 6); });
       inkBloom(W/2,H*0.4,'161,58,44');
     }
@@ -737,6 +804,7 @@
         lives = Math.max(0, lives-1);
         hp = Math.max(0, hp-14);
         shake(10); buzz(80);
+        sfx.hurt();
         inkBloom(en.x, baseY(), '161,58,44');
         updateHUD();
         if(lives<=0 || hp<=0) gameOver();
@@ -795,6 +863,7 @@
   }
 
   function gameOver(){
+    sfx.chime();
     running=false;
     finalScoreEl.textContent = 'SCORE '+score;
     endOverlay.classList.add('show');
@@ -802,16 +871,20 @@
 
   // ---------- buttons ----------
   document.getElementById('startBtn').addEventListener('click', ()=>{
+    ensureAudio();
+    sfx.chime();
     startOverlay.classList.remove('show');
     resetGame();
     running=true; paused=false;
   });
   document.getElementById('retryBtn').addEventListener('click', ()=>{
+    ensureAudio();
     endOverlay.classList.remove('show');
     resetGame();
     running=true; paused=false;
   });
   document.getElementById('restartBtn').addEventListener('click', ()=>{
+    ensureAudio();
     resetGame();
     running=true; paused=false;
     endOverlay.classList.remove('show');
@@ -820,6 +893,14 @@
     if(!running) return;
     paused=!paused;
     e.target.textContent = paused? '►':'❚❚';
+  });
+  const muteBtn=document.getElementById('muteBtn');
+  if(muted) muteBtn.classList.add('muted');
+  muteBtn.addEventListener('click', ()=>{
+    muted=!muted;
+    muteBtn.classList.toggle('muted',muted);
+    if(masterGain) masterGain.gain.value = muted?0:0.9;
+    try{ localStorage.setItem('inkguard_muted', muted?'1':'0'); }catch(e){}
   });
 
   resize();
