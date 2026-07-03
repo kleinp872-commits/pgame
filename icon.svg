@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect x="16" y="16" width="480" height="480" rx="64" fill="#a13a2c"/>
+  <rect x="40" y="40" width="432" height="432" rx="44" fill="none" stroke="#e9e2cf" stroke-width="14" opacity="0.55"/>
+  <text x="256" y="256" font-family="'Songti SC','STSong','Noto Serif SC',serif" font-size="300" font-weight="700"
+        fill="#e9e2cf" text-anchor="middle" dominant-baseline="central">守</text>
+</svg>

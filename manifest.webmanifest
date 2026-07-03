@@ -1,0 +1,13 @@
+{
+  "name": "墨守 · Ink Guard",
+  "short_name": "墨守",
+  "description": "水墨风划屏守御游戏",
+  "start_url": "./mo-shou_3.html",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#e9e2cf",
+  "theme_color": "#a13a2c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
