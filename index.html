@@ -172,12 +172,12 @@
     <h1>墨守</h1>
     <p>I N K &nbsp; G U A R D</p>
     <button class="startbtn" id="startBtn">開始 · PLAY</button>
-    <div class="hint">用手指或滑鼠劃過墨靈即可斬殺，不同墨靈需要劃中的次數不同。<br>螢幕出現虛線圖案時，沿其軌跡描繪以施展雷擊。<br>每關消滅足夠數量即可過關，敵人種類會隨等級增加。<br>讓墨靈越過紅印線會損失生命。</div>
+    <div class="hint">用手指或滑鼠劃過墨靈即可斬殺，不同墨靈需要劃中的次數不同。<br>螢幕出現虛線圖案時，沿其軌跡描繪以施展雷擊；雷擊只造成傷害，高階墨靈需多道雷。<br>金色錦鯉是善靈，誤斬會折損氣血與分數。<br>守過十關後，大妖「墨淵」現世——斬滅之即可通關。</div>
   </div>
 
   <div class="overlay" id="endOverlay">
-    <h1>破 守</h1>
-    <p>THE INK HAS BROKEN THROUGH</p>
+    <h1 id="endTitle">破 守</h1>
+    <p id="endSub">THE INK HAS BROKEN THROUGH</p>
     <div class="go-score" id="finalScore">0</div>
     <button class="startbtn" id="retryBtn">再 守 · RETRY</button>
   </div>
@@ -471,7 +471,7 @@
   }
 
   // ---------- new enemy nameplate ----------
-  const ANIMAL_NAMES={tadpole:'墨蝌',octopus:'墨蛸',jellyfish:'墨蜇'};
+  const ANIMAL_NAMES={tadpole:'墨蝌',octopus:'墨蛸',jellyfish:'墨蜇',koi:'錦鯉',boss:'墨淵'};
   const CN_NUM=['零','一','二','三','四','五','六','七','八','九'];
   let seenTypes=new Set(), nameTimer=null;
   function announceNewEnemies(){
@@ -509,6 +509,9 @@
   let castEvent=null; // {points, life, matched}
   let castCooldown=0;
   let lastT=0;
+  // final boss + friendly koi
+  const FINAL_LEVEL=10, BOSS_HP=120, THUNDER_DMG=2, BOSS_THUNDER_DMG=8;
+  let bossPhase=false, boss=null, koiWarned=false;
 
   const scoreNum=document.getElementById('scoreNum');
   const tideLabel=document.getElementById('tideLabel');
@@ -520,6 +523,8 @@
   const sealBox=document.getElementById('sealBox');
   const startOverlay=document.getElementById('startOverlay');
   const endOverlay=document.getElementById('endOverlay');
+  const endTitle=document.getElementById('endTitle');
+  const endSub=document.getElementById('endSub');
   const finalScoreEl=document.getElementById('finalScore');
   const comboTxt=document.getElementById('comboTxt');
   const namePlate=document.getElementById('namePlate');
@@ -537,9 +542,10 @@
     comboTxt.classList.remove('pop');
     seenTypes=new Set(); namePlate.classList.remove('show');
     levelKills=0; levelTransition=0;
+    bossPhase=false; boss=null; koiWarned=false;
     applyLevelConfig();
     spawnTimer=0;
-    castEvent=null; castCooldown=3000+Math.random()*5000;
+    castEvent=null; castCooldown=8000+Math.random()*7000;
     updateHUD();
   }
 
@@ -551,9 +557,14 @@
 
   function updateHUD(){
     scoreNum.textContent = Math.floor(displayScore);
-    tideLabel.textContent = 'LEVEL '+level+' · '+Math.min(levelKills,levelGoal)+'/'+levelGoal;
+    if(bossPhase && boss && boss.alive){
+      tideLabel.textContent = '終戰 · 墨淵';
+      waveFill.style.width = Math.max(0,(1-boss.hits/boss.maxHits)*100)+'%';
+    } else {
+      tideLabel.textContent = 'LEVEL '+level+' · '+Math.min(levelKills,levelGoal)+'/'+levelGoal;
+      waveFill.style.width = Math.min(100,(levelKills/levelGoal)*100)+'%';
+    }
     hpFill.style.height = Math.max(0,hp)+'%';
-    waveFill.style.width = Math.min(100,(levelKills/levelGoal)*100)+'%';
     [...livesEl.children].forEach((d,i)=>{
       d.classList.toggle('lost', i>=lives);
     });
@@ -577,7 +588,8 @@
   const ANIMAL_DEFS = {
     tadpole:   { amp:14, rRange:[7,10],  speedMult:1.25 },
     octopus:   { amp:24, rRange:[13,17], speedMult:0.78 },
-    jellyfish: { amp:30, rRange:[10,14], speedMult:0.62 }
+    jellyfish: { amp:30, rRange:[10,14], speedMult:0.62 },
+    koi:       { amp:22, rRange:[11,14], speedMult:0.9 }   // friendly — do NOT slash
   };
 
   // Each level defines which animals appear and how many strokes each needs.
@@ -613,12 +625,19 @@
 
   function spawnEnemy(){
     const cfg = getLevelConfig(level);
-    const pick = pickWeighted(cfg.animals);
-    const type = pick.type;
+    let type, hits, friendly=false;
+    if(level>=2 && Math.random()<0.09){
+      type='koi'; hits=1; friendly=true;          // wandering good spirit
+    } else if(bossPhase){
+      type='tadpole'; hits=2;                     // boss-phase minions
+    } else {
+      const pick = pickWeighted(cfg.animals);
+      type=pick.type; hits=pick.hits;
+    }
     const def = ANIMAL_DEFS[type];
     const amp = def.amp;
     const baseX = 30+amp + Math.random()*(W-60-amp*2);
-    const speed = ((16 + level*2 + Math.random()*8) * def.speedMult) / 1000; // px/ms
+    const speed = ((26 + level*3 + Math.random()*10) * def.speedMult) / 1000; // px/ms
     const [rMin,rMax] = def.rRange;
     enemies.push({
       x: baseX, y:-20, type, speed,
@@ -629,10 +648,14 @@
       r: rMin + Math.random()*(rMax-rMin),
       facing: 1, angle: 0,
       wobble: Math.random()*Math.PI*2,
-      maxHits: pick.hits, hits: 0, ptsPerHit: 6 + pick.hits*2,
-      hitCooldown: 0,
+      maxHits: hits, hits: 0, ptsPerHit: 6 + hits*2,
+      hitCooldown: 0, friendly,
       alive:true, hitFlash:0
     });
+    if(friendly && !koiWarned){
+      koiWarned=true;
+      flash('錦鯉現身 · 勿斬！');
+    }
   }
 
   function drawEnemy(e){
@@ -686,6 +709,66 @@
         gctx.stroke();
       }
 
+    } else if(e.type==='koi'){
+      // golden halo — reads as "sacred, don't slash"
+      const hg = gctx.createRadialGradient(0,0,2, 0,0,e.r*2.1);
+      hg.addColorStop(0,'rgba(230,180,80,0.30)');
+      hg.addColorStop(1,'rgba(230,180,80,0)');
+      gctx.fillStyle=hg;
+      gctx.beginPath(); gctx.arc(0,0,e.r*2.1,0,Math.PI*2); gctx.fill();
+      // warm gold body
+      gctx.fillStyle='rgba(210,132,44,0.92)';
+      gctx.beginPath(); gctx.ellipse(1.5*s,0, 5.6*s,3.4*s, 0, 0, Math.PI*2); gctx.fill();
+      // flowing two-lobe tail
+      const tw = flap*2.8*s;
+      gctx.beginPath();
+      gctx.moveTo(-3.4*s,0);
+      gctx.quadraticCurveTo(-8*s,-3*s+tw, -11.5*s,-1.5*s+tw);
+      gctx.quadraticCurveTo(-7.5*s,0, -11.5*s,2.2*s-tw);
+      gctx.quadraticCurveTo(-8*s,3*s-tw*0.5, -3.4*s,0.8*s);
+      gctx.closePath(); gctx.fill();
+      // seal-red patch on the back (classic koi marking)
+      gctx.fillStyle='rgba(161,58,44,0.85)';
+      gctx.beginPath(); gctx.ellipse(2.6*s,-1.2*s, 2.2*s,1.4*s, 0.3, 0, Math.PI*2); gctx.fill();
+      // eye
+      gctx.fillStyle='rgba(24,21,17,0.85)';
+      gctx.beginPath(); gctx.arc(5.4*s,-0.8*s, 0.7*s, 0, Math.PI*2); gctx.fill();
+
+    } else if(e.type==='boss'){
+      // dark aura
+      const ag = gctx.createRadialGradient(0,0,e.r*0.3, 0,0,e.r*1.6);
+      ag.addColorStop(0,'rgba(24,21,17,0.35)');
+      ag.addColorStop(1,'rgba(24,21,17,0)');
+      gctx.fillStyle=ag;
+      gctx.beginPath(); gctx.arc(0,0,e.r*1.6,0,Math.PI*2); gctx.fill();
+      // heaving irregular ink mass
+      gctx.fillStyle = e.hitFlash>0 ? 'rgba(161,58,44,0.9)' : 'rgba(18,15,12,0.92)';
+      gctx.beginPath();
+      const lobes=9;
+      for(let i=0;i<=lobes;i++){
+        const a=(i/lobes)*Math.PI*2;
+        const rr=e.r*(0.82+0.16*Math.sin(a*3+e.swimT*0.002));
+        const px=Math.cos(a)*rr, py=Math.sin(a)*rr*0.9;
+        if(i===0) gctx.moveTo(px,py); else gctx.lineTo(px,py);
+      }
+      gctx.closePath(); gctx.fill();
+      // trailing tentacle wisps
+      gctx.strokeStyle = gctx.fillStyle;
+      gctx.lineCap='round';
+      gctx.lineWidth = e.r*0.13;
+      for(let i=0;i<7;i++){
+        const spread = -1 + (i/6)*2;
+        const wig = Math.sin(e.swimT*0.003 + i*1.3) * e.r*0.25;
+        gctx.beginPath();
+        gctx.moveTo(spread*e.r*0.5, e.r*0.6);
+        gctx.quadraticCurveTo(spread*e.r*0.8+wig, e.r*1.2, spread*e.r*0.65, e.r*1.7+Math.abs(wig)*0.5);
+        gctx.stroke();
+      }
+      // seal-red eyes
+      gctx.fillStyle='rgba(161,58,44,0.95)';
+      gctx.beginPath(); gctx.ellipse(-e.r*0.32,-e.r*0.15, e.r*0.13,e.r*0.07, -0.25, 0, Math.PI*2); gctx.fill();
+      gctx.beginPath(); gctx.ellipse( e.r*0.32,-e.r*0.15, e.r*0.13,e.r*0.07,  0.25, 0, Math.PI*2); gctx.fill();
+
     } else { // jellyfish
       const pulse = 1 + 0.1*Math.sin(e.wobble*0.03 + e.y*0.12);
       gctx.globalAlpha = 0.8;
@@ -713,6 +796,15 @@
     }
     gctx.restore();
 
+    // boss health bar (dots would be absurd at 100+)
+    if(e.type==='boss'){
+      const bw=110, bx=e.x-bw/2, by=e.y-e.r-24;
+      gctx.fillStyle='rgba(24,21,17,0.25)';
+      gctx.fillRect(bx,by,bw,5);
+      gctx.fillStyle='rgba(161,58,44,0.85)';
+      gctx.fillRect(bx,by,bw*Math.max(0,1-e.hits/e.maxHits),5);
+      return;
+    }
     // remaining-hit indicator for multi-hit animals
     if(e.maxHits>1){
       const remaining = e.maxHits - e.hits;
@@ -881,7 +973,23 @@
   gCanvas.addEventListener('touchmove', e=>{e.preventDefault(); pointerMove(e);}, {passive:false});
   gCanvas.addEventListener('touchend', e=>{e.preventDefault(); pointerUp(e);}, {passive:false});
 
+  function hitFriendly(en){
+    en.alive=false;
+    combo=0; comboT=0; comboTxt.classList.remove('pop');
+    hp = Math.max(0, hp-10);
+    score = Math.max(0, score-30);
+    displayScore = Math.min(displayScore, score);
+    scoreNum.textContent = Math.floor(displayScore);
+    shake(7); buzz(60); sfx.hurt();
+    healthBar.classList.remove('hit'); void healthBar.offsetWidth; healthBar.classList.add('hit');
+    inkBloom(en.x, en.y, '161,58,44');
+    spawnFloater(en.x, en.y-en.r-14, '誤斬錦鯉 -30');
+    updateHUD();
+    if(hp<=0) gameOver();
+  }
+
   function hitEnemy(en){
+    if(en.friendly){ hitFriendly(en); return; }
     if(en.hitCooldown>0) return;
     en.hits += 1;
     en.hitFlash = 140;
@@ -917,7 +1025,13 @@
     }
     if(combo>=3) sfx.combo(combo);
     scoreNum.classList.remove('bump'); void scoreNum.offsetWidth; scoreNum.classList.add('bump');
-    if(countsForLevel){
+    if(en.type==='boss'){
+      shake(12); buzz(120);
+      inkBloom(en.x, en.y, '161,58,44');
+      victory();
+      return;
+    }
+    if(countsForLevel && !bossPhase){
       levelKills++;
       if(levelKills>=levelGoal && levelTransition<=0){
         beginLevelClear();
@@ -943,6 +1057,43 @@
     updateHUD();
     flash('LEVEL '+level);
     announceNewEnemies();
+  }
+
+  function startBossPhase(){
+    bossPhase = true;
+    levelKills = 0;
+    spawnInterval = 1600;   // sparse minions only — the boss is the fight
+    spawnTimer = 0;
+    boss = {
+      x: W/2, y: -90, type:'boss', speed: 0.010,
+      baseX: W/2, swimAmp: W*0.18,
+      swimFreq: 0.0005, swimPhase: 0, swimT: 0,
+      r: 56, facing: 1, angle: 0,
+      wobble: 0,
+      maxHits: BOSS_HP, hits: 0, ptsPerHit: 4,
+      hitCooldown: 0, friendly: false,
+      alive: true, hitFlash: 0
+    };
+    enemies.push(boss);
+    flash('大妖 · 墨淵 現世！');
+    sfx.thunder(); shake(8); buzz(60);
+    updateHUD();
+  }
+
+  function victory(){
+    running = false;
+    score += 500;
+    sfx.clear();
+    const best = loadBest();
+    if(score > best.score){
+      saveBest({score:score, level:level});
+      finalScoreEl.innerHTML = '<span class="record">新紀錄！</span>　SCORE '+score;
+    } else {
+      finalScoreEl.textContent = 'SCORE '+score+' · 最佳 '+best.score;
+    }
+    endTitle.textContent = '守 成';
+    endSub.textContent = 'THE SEAL HOLDS · 通關';
+    endOverlay.classList.add('show');
   }
 
   // ---------- cast event (trace to cast) ----------
@@ -1005,14 +1156,27 @@
       flash('Trace complete · Thunder!');
       sfx.thunder();
       spawnLightning(); shake(9); buzz(60);
-      thunderQueue = enemies.filter(e=>e.alive).sort((a,b)=>b.y-a.y);
+      thunderQueue = enemies.filter(e=>e.alive && !e.friendly).sort((a,b)=>b.y-a.y);
       thunderT = 0;
       inkBloom(W/2,H*0.4,'161,58,44');
     }
     castEvent = null;
     promptText.style.display='none';
     sealBox.classList.remove('armed');
-    castCooldown = 6000 + Math.random()*14000; // 6-20s, wide random spread
+    castCooldown = 14000 + Math.random()*16000; // 14-30s, wide random spread
+  }
+
+  // thunder deals damage, not instant death — tough spirits need several bolts
+  function thunderStrike(en){
+    const dmg = en.type==='boss' ? BOSS_THUNDER_DMG : THUNDER_DMG;
+    en.hits += dmg;
+    if(en.hits >= en.maxHits){
+      killEnemy(en, 6);
+    } else {
+      en.hitFlash = 140;
+      inkBloom(en.x, en.y, '161,58,44');
+      spawnFloater(en.x, en.y-en.r-14, '雷 -'+dmg);
+    }
   }
 
   // ---------- main loop ----------
@@ -1075,13 +1239,16 @@
       while(thunderT>=60 && thunderQueue.length){
         thunderT -= 60;
         const ten = thunderQueue.shift();
-        if(ten.alive) killEnemy(ten, 6);
+        if(ten.alive) thunderStrike(ten);
       }
     }
 
     if(levelTransition>0){
       levelTransition -= dt;
-      if(levelTransition<=0) startLevel(level+1);
+      if(levelTransition<=0){
+        if(level>=FINAL_LEVEL) startBossPhase();
+        else startLevel(level+1);
+      }
       updateHUD();
       return;
     } else {
@@ -1112,6 +1279,14 @@
       if(en.hitFlash>0) en.hitFlash -= dt;
       if(en.hitCooldown>0) en.hitCooldown -= dt;
       if(en.y > baseY()){
+        if(en.friendly){ en.alive=false; return; } // good spirit passes freely
+        if(en.type==='boss'){
+          en.alive=false;
+          shake(12); buzz(150); sfx.hurt();
+          inkBloom(en.x, baseY(), '161,58,44');
+          gameOver();
+          return;
+        }
         en.alive=false;
         lives = Math.max(0, lives-1);
         hp = Math.max(0, hp-14);
@@ -1233,6 +1408,8 @@
   function gameOver(){
     sfx.chime();
     running=false;
+    endTitle.textContent='破 守';
+    endSub.textContent='THE INK HAS BROKEN THROUGH';
     const best = loadBest();
     if(score > best.score){
       saveBest({score:score, level:level});

@@ -47,16 +47,27 @@ viewport — it's touch-first, `maximum-scale=1.0, user-scalable=no`).
   `ANIMAL_DEFS` entry + a `drawEnemy` branch + reference it in `LEVELS`.
 - **Enemies** are plain objects pushed by `spawnEnemy()`. Motion = downward
   `speed` (px/ms) plus horizontal sine-swim around `baseX`. `drawEnemy` switches on
-  `e.type` (`tadpole`/`octopus`/`jellyfish`), all hand-drawn with canvas paths.
-  Multi-hit enemies show remaining-hit dots above them.
+  `e.type` (`tadpole`/`octopus`/`jellyfish`/`koi`/`boss`), all hand-drawn with
+  canvas paths. Multi-hit enemies show remaining-hit dots above them (boss draws
+  an HP bar instead).
+- **Friendly koi.** From level 2 on, `spawnEnemy` has a ~9% chance to spawn a
+  golden `koi` with `friendly:true`. Slashing it calls `hitFriendly` (−10 HP,
+  −30 score, combo reset); it crosses `baseY()` penalty-free and thunder skips
+  `friendly` enemies.
+- **Final boss.** Clearing `FINAL_LEVEL` (10) calls `startBossPhase()` instead of
+  `startLevel(11)`: pushes a `boss` (`BOSS_HP` hits) into `enemies` plus sparse
+  tadpole minions (minion kills don't advance `levelKills`). Boss death →
+  `victory()` (win overlay); boss crossing the seal line → instant `gameOver()`.
 - **Input → combat.** Pointer/touch handlers build `strokePts` (with timestamps).
   On `pointermove`, each new segment is collision-tested against every enemy via
   `distToSeg`; a hit calls `hitEnemy` (respects `hitCooldown`, increments `hits`,
   kills at `maxHits`). `strokeTrail` is the fading brush-ink visual.
 - **"Trace to cast" special.** `triggerCastEvent()` shows a dashed zig-zag path;
   `checkCastMatch()` is a heuristic (counts x-direction reversals + proximity +
-  path length) — matching it fires `resolveCast(true)`, a screen-clear "thunder".
-  Governed by `castCooldown`.
+  path length) — matching it fires `resolveCast(true)`: thunder that deals
+  `THUNDER_DMG` (2) damage per enemy via `thunderStrike` (boss takes
+  `BOSS_THUNDER_DMG`), so tough spirits survive and need several casts. Governed
+  by `castCooldown` (14–30 s random).
 - **Effects.** `inkBloom()` (radial-gradient ink splashes with animated tendrils —
   the signature visual) and `burst()`/`particles` are purely cosmetic.
 - **HUD** is DOM, not canvas: `updateHUD()` writes score/level/hp/lives/wave-bar.
